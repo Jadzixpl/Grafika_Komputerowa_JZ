@@ -39,18 +39,16 @@ var rotate = 0;
 var loadingImages = true;
 var textureImages = new Array();  // Will hold Image objects loaded from image URLs.
 var textureImageURLs = [
-    "textures/brick001.jpg",
-    "textures/Earth-1024x512.jpg",
-    "textures/NightEarth-512x256.jpg",
-    "textures/marble.jpg",
-    "textures/metal003.gif",
-    "textures/mandelbrot.jpeg",
-	"textures/brick.jpg",
-	"textures/clouds.jpg",
-	"textures/earth.jpg"
+    "../textures/brick001.jpg",
+    "../textures/Earth-1024x512.jpg",
+    "../textures/NightEarth-512x256.jpg",
+    "../textures/marble.jpg",
+    "../textures/metal003.gif",
+    "../textures/mandelbrot.jpeg",
+	"../textures/clouds.jpg"
 ];
 
-function pyramid(radius = 1, height = 1) {
+function pyramid(radius = 10, height = 10) {
     let vertexPositions = [];
     let vertexNormals = [];
     let vertexTextureCoords = [];
@@ -58,13 +56,12 @@ function pyramid(radius = 1, height = 1) {
 
     // Top vertex
     vertexPositions.push(0, height, 0);
-    vertexNormals.push(0, 1, 0);  // Approx, we'll fix this later.
+    vertexNormals.push(0, 1, 0);
     vertexTextureCoords.push(0.5, 1.0);
 
     const numSides = 10;
     const angleStep = (Math.PI * 2) / numSides;
 
-    // Generate base vertices
     for (let i = 0; i < numSides; i++) {
         let angle = i * angleStep;
         let x = radius * Math.cos(angle);
@@ -73,22 +70,19 @@ function pyramid(radius = 1, height = 1) {
 
         vertexPositions.push(x, y, z);
         vertexTextureCoords.push((Math.cos(angle) + 1) / 2, (Math.sin(angle) + 1) / 2);
-        vertexNormals.push(0, -1, 0);  // base normals, flat downward
+        vertexNormals.push(0, -1, 0);
     }
 
-    // Center point for the base
     vertexPositions.push(0, 0, 0);
     vertexTextureCoords.push(0.5, 0.5);
     vertexNormals.push(0, -1, 0);
 
-    // Indices for the base
     const centerIndex = numSides + 1;
     for (let i = 1; i <= numSides; i++) {
         let next = i % numSides + 1;
         indices.push(centerIndex, i, next);
     }
 
-    // Indices for the sides (triangles)
     for (let i = 1; i <= numSides; i++) {
         let next = i % numSides + 1;
         indices.push(0, i, next);
@@ -96,7 +90,7 @@ function pyramid(radius = 1, height = 1) {
 
     return {
         vertexPositions: new Float32Array(vertexPositions),
-        vertexNormals: new Float32Array(vertexNormals),  // normals can be improved
+        vertexNormals: new Float32Array(vertexNormals),
         vertexTextureCoords: new Float32Array(vertexTextureCoords),
         indices: new Uint16Array(indices)
     };
@@ -308,6 +302,7 @@ function init() {
     cone = uvCone();
     torus = uvTorus();
     teapot = teapotModel;  // (This one is just a variable, defined in teapot-model-IFS.js)
+	pyramid = pyramid();
     sliderRotate.draw();
     sliderScale.draw();
     sliderTranslateX.draw();
@@ -338,6 +333,8 @@ function init() {
         <option value="3">Marble</option>
         <option value="4">Metal</option>
         <option value="5">Mandelbrot</option>
+		<option value="6">Clouds</option>
+
     </select>
     <b style="margin-left:40px">Object</b>:
     <select id="object">
