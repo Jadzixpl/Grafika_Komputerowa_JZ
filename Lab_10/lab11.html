@@ -23,20 +23,20 @@
 -->
 
 <script type="x-shader/x-vertex" id="vshader-source">
-    attribute vec2 a_coords; // vertex position in standard canvas pixel coords
-    uniform float u_width;   // width of canvas
-    uniform float u_height;  // height of canvas
-    uniform float u_pointSize; 
+    attribute vec2 a_coords;
+    attribute vec3 a_color;
+    uniform float u_width;
+    uniform float u_height;
+    varying vec3 v_color;
+
     void main() {
-        float x,y;  // vertex position in clip coordinates
-        
-        x = a_coords.x/u_width * 2.0 - 1.0;  // convert pixel coords to clip coords
-        y = 1.0 - a_coords.y/u_height * 2.0;
-        
+        float x = a_coords.x/u_width * 2.0 - 1.0;
+        float y = 1.0 - a_coords.y/u_height * 2.0;
         gl_Position = vec4(x, y, 0.0, 1.0);
-        gl_PointSize = u_pointSize;
+        v_color = a_color;
     }
 </script>
+
 
 <script type="x-shader/x-fragment" id="fshader-source">
     #ifdef GL_FRAGMENT_PRECISION_HIGH
@@ -44,10 +44,14 @@
     #else
        precision mediump float;
     #endif
+
+    varying vec3 v_color;
+
     void main() {
-        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+        gl_FragColor = vec4(v_color, 1.0);
     }
 </script>
+
 
 <script>
 
@@ -62,13 +66,23 @@ var u_pointSize_loc;    // Location of "pointSize" uniform, which gives the size
 var a_coords_loc;       // Location of the a_coords attribute variable in the shader program;
                         //    This attribute gives the (x,y) coordinates of the points.
 
+var a_color_loc;       // Lokalizacja atrybutu koloru
+var colorBuffer;       // Bufor do przechowywania kolorów
+
+
 var a_coords_buffer;    // Buffer to hold the values for a_coords (coordinates for the points)
 
 var POINT_COUNT = 30;   // How many points to draw.
 var POINT_SIZE = 64;    // Size in pixel of the square drawn for each point.
 
-var positions = new Float32Array( 2*POINT_COUNT );  // Position data for points.
-var velocities = new Float32Array( 2*POINT_COUNT ); // Velocity data for points.
+
+const VERTICES_PER_NONAGON = 27; // 9 trójkątów, 3 wierzchołki = 27
+var positions = new Float32Array( 2 * POINT_COUNT * VERTICES_PER_NONAGON ); // x,y dla każdego wierzchołka
+var velocities = new Float32Array( 2 * POINT_COUNT ); // dx,dy tylko dla środka sześciokąta
+var colors = new Float32Array( 3 * POINT_COUNT * VERTICES_PER_NONAGON ); // r,g,b dla każdego wierzchołka
+var centers = new Float32Array(2 * POINT_COUNT); // x, y dla każdego środka
+
+
       // Note: The xy coords for point number i are in positions[2*i],position[2*i+1].
       // The xy velocity compontents for point number i are in velocities[2*i],velociteis[2*i+1].
       // Position coordinates are in pixels, and velocity components are in pixels per frame.
@@ -80,25 +94,25 @@ var isRunning = true;  // The animation runs when this is true; its value is tog
  *  Called by init() when the window is first opened, and by frame() to render each frame.
  */
 function render() {
+    gl.clear(gl.COLOR_BUFFER_BIT);
 
-    gl.clear(gl.COLOR_BUFFER_BIT);  // clear the color buffer before drawing
+    // --- PRZESYŁANIE POZYCJI DO GPU ---
+    gl.bindBuffer(gl.ARRAY_BUFFER, a_coords_buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);
+    gl.vertexAttribPointer(a_coords_loc, 2, gl.FLOAT, false, 0, 0);
 
-    // The position data changes for each frame, so we have to send the new values
-    // for the position attirbute into the corresponding buffer in the GPU here,
-    // in every frame.
+    // --- PRZESYŁANIE KOLORÓW DO GPU ---
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STREAM_DRAW);
+    gl.vertexAttribPointer(a_color_loc, 3, gl.FLOAT, false, 0, 0);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, a_coords_buffer);            // Select the buffer we want to use.
-    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);  // Send the data.
-    gl.vertexAttribPointer(a_coords_loc, 2, gl.FLOAT, false, 0, 0);  // Describes the data format.
-    
-    // Now, draw the points as a primitive of type gl.POINTS
-    
-    gl.drawArrays(gl.POINTS, 0, POINT_COUNT);
-    
+    // --- RYSOWANIE ---
+    gl.drawArrays(gl.TRIANGLES, 0, POINT_COUNT * VERTICES_PER_NONAGON);
+
     if (gl.getError() != gl.NO_ERROR) {
         console.log("During render, a GL error has been detected.");
     }
-} // end render()
+}
 
 
 /**
@@ -107,16 +121,37 @@ function render() {
  * The speed is between 2 and 6 pixels per frame.
  */
 function createData() {
-    for (var i = 0; i < POINT_COUNT; i++) {
-        positions[2*i] = canvas.width/2;
-        positions[2*i+1] = canvas.height/2;
-        var speed = 2 + 4*Math.random();
-        var angle = 2*Math.PI*Math.random();
-        velocities[2*i] = speed*Math.sin(angle);
-        velocities[2*i+1] = speed*Math.cos(angle);
-    }
-} // end createData()
+    let angleStep = 2 * Math.PI / 9; // 40 stopni
+    for (let i = 0; i < POINT_COUNT; i++) {
+        let cx = canvas.width / 2;
+        let cy = canvas.height / 2;
 
+        centers[2 * i] = cx;
+        centers[2 * i + 1] = cy;
+        
+        let speed = 2 + 4 * Math.random();
+        let angle = 2 * Math.PI * Math.random();
+        velocities[2 * i] = speed * Math.sin(angle);
+        velocities[2 * i + 1] = speed * Math.cos(angle);
+
+        // Losowy kolor
+        let r = Math.random(), g = Math.random(), b = Math.random();
+
+        for (let j = 0; j < 9; j++) {
+            let baseIdx = i * 27 + j * 3;
+            let a1 = angleStep * j;
+            let a2 = angleStep * (j + 1);
+
+            let x1 = cx + POINT_SIZE * Math.cos(a1) / 2;
+            let y1 = cy + POINT_SIZE * Math.sin(a1) / 2;
+            let x2 = cx + POINT_SIZE * Math.cos(a2) / 2;
+            let y2 = cy + POINT_SIZE * Math.sin(a2) / 2;
+
+            positions.set([cx, cy, x1, y1, x2, y2], baseIdx * 2);
+            colors.set([r, g, b, r, g, b, r, g, b], baseIdx * 3);
+        }
+    }
+}
 
 /**
  * Called by frame() before each frame is rendered.  Adds velcities
@@ -124,27 +159,36 @@ function createData() {
  * it bounces.
  */
 function updateData() {
-    for (var i = 0; i < POINT_COUNT; i++) {
-       positions[2*i] += velocities[2*i];
-       if ( positions[2*i] < POINT_SIZE/2 && velocities[2*i] < 0) {
-           positions[2*i] += 2*(POINT_SIZE/2 - positions[2*i]);
-           velocities[2*i] = Math.abs(velocities[2*i]);
-       }
-       else if (positions[2*i] > canvas.width - POINT_SIZE/2 && velocities[2*i] > 0){
-           positions[2*i] -= 2*(positions[2*i] - canvas.width + POINT_SIZE/2);
-           velocities[2*i] = - Math.abs(velocities[2*i]);
-       }
-       positions[2*i+1] += velocities[2*i+1];
-       if ( positions[2*i+1] < POINT_SIZE/2  && velocities[2*i+1] < 0) {
-           positions[2*i+1] += 2*(POINT_SIZE/2 - positions[2*i+1]);
-           velocities[2*i+1] = Math.abs(velocities[2*i+1]);
-       }
-       else if (positions[2*i+1] > canvas.height - POINT_SIZE/2  && velocities[2*i+1] > 0){
-           positions[2*i+1] -= 2*(positions[2*i+1] - canvas.height + POINT_SIZE/2);
-           velocities[2*i+1] = - Math.abs(velocities[2*i+1]);
-       }
+    let angleStep = 2 * Math.PI / 9;
+    for (let i = 0; i < POINT_COUNT; i++) {
+        centers[2 * i] += velocities[2 * i];
+        centers[2 * i + 1] += velocities[2 * i + 1];
+
+        let cx = centers[2 * i];
+        let cy = centers[2 * i + 1];
+
+        if (cx < POINT_SIZE / 2 || cx > canvas.width - POINT_SIZE / 2) {
+            velocities[2 * i] = -velocities[2 * i];
+        }
+        if (cy < POINT_SIZE / 2 || cy > canvas.height - POINT_SIZE / 2) {
+            velocities[2 * i + 1] = -velocities[2 * i + 1];
+        }
+
+        for (let j = 0; j < 9; j++) {
+            let baseIdx = i * 27 + j * 3;
+            let a1 = angleStep * j;
+            let a2 = angleStep * (j + 1);
+
+            let x1 = cx + POINT_SIZE * Math.cos(a1) / 2;
+            let y1 = cy + POINT_SIZE * Math.sin(a1) / 2;
+            let x2 = cx + POINT_SIZE * Math.cos(a2) / 2;
+            let y2 = cy + POINT_SIZE * Math.sin(a2) / 2;
+
+            positions.set([cx, cy, x1, y1, x2, y2], baseIdx * 2);
+        }
     }
-} // end updateData()
+}
+
 
 
 /* Called when the user hits a key */
@@ -177,6 +221,10 @@ function initGL() {
     u_pointSize_loc = gl.getUniformLocation(prog,"u_pointSize");
     a_coords_loc = gl.getAttribLocation(prog,"a_coords");
     
+    a_color_loc = gl.getAttribLocation(prog, "a_color");
+colorBuffer = gl.createBuffer();
+gl.enableVertexAttribArray(a_color_loc);
+
     /* Assign initial values to uniforms. */    
     
     gl.uniform1f(u_width_loc, canvas.width);
@@ -299,8 +347,9 @@ function frame() {
 function doMouse(evt) {
     function headTowards(x,y) {
         for (var i = 0; i < POINT_COUNT; i++) {
-            var dx = x - positions[2*i];
-            var dy = y - positions[2*i+1];
+            var dx = x - centers[2*i];
+var dy = y - centers[2*i+1];
+
             var dist = Math.sqrt(dx*dx + dy*dy);
             if (dist > 0.1) { // only if mouse and point are not too close.
                 var speed = Math.sqrt( velocities[2*i]*velocities[2*i] + velocities[2*i+1]*velocities[2*i+1] );
@@ -319,10 +368,16 @@ function doMouse(evt) {
     if (evt.which != 1) {
         return;  // only respond to left mouse down
     }
-    if (evt.shiftKey) {
-        createData();
-        return;
-    }
+   if (evt.shiftKey) {
+    createData();
+
+    // Dodaj ten fragment, który aktualizuje kolory w GPU
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STREAM_DRAW);
+
+    return;
+}
+
     headTowards(evt.clientX,evt.clientY);
     canvas.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
@@ -376,4 +431,3 @@ function init() {
 <noscript>Sorry, this page requires JavaScript.</noscript>
 </body>
 </html>
-
